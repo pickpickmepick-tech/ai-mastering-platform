@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import ToggleSwitch from "./ToggleSwitch";
 
 interface Props {
   file: File | null;
@@ -241,9 +240,25 @@ export default function StretchPanel({
 
   return (
     <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-      <div className="mb-4 flex items-center gap-2.5">
-        <ToggleSwitch checked={enabled} onChange={onToggle} />
-        <h3 className="text-sm font-semibold text-zinc-200">⏱️ Audio Stretch</h3>
+      <div className="mb-5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm transition ${
+              enabled ? "bg-accent/20 shadow-[0_0_10px_rgba(124,92,255,0.5)]" : "bg-white/5 grayscale opacity-60"
+            }`}
+          >
+            ⏱️
+          </span>
+          <h3 className="text-base font-bold leading-none text-white">Audio Stretch</h3>
+        </div>
+        <button
+          type="button"
+          onClick={() => onToggle(!enabled)}
+          title={enabled ? "끄기" : "켜기"}
+          className="flex h-7 w-7 shrink-0 items-center justify-center text-xl leading-none text-zinc-500 transition hover:text-zinc-300"
+        >
+          ×
+        </button>
       </div>
 
       <div className={enabled ? "" : "pointer-events-none opacity-40"}>
@@ -355,7 +370,7 @@ export default function StretchPanel({
             onClick={handleUndo}
             className="rounded-xl border border-surface-border bg-white/[0.03] py-2.5 text-xs font-semibold text-zinc-400 transition hover:border-accent/40 hover:text-accent-soft"
           >
-            Undo Changes
+            되돌리기
           </button>
           <button
             type="button"
@@ -363,7 +378,7 @@ export default function StretchPanel({
             disabled={!file}
             className="rounded-xl bg-gradient-to-r from-accent to-accent-glow py-2.5 text-xs font-bold text-black shadow-glow disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Apply
+            적용
           </button>
         </div>
       </div>

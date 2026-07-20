@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import ToggleSwitch from "./ToggleSwitch";
 
 interface Props {
   enabled: boolean;
@@ -142,15 +141,23 @@ export default function ReverbPanel({
     <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
       <div className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <ToggleSwitch checked={enabled} onChange={onToggle} />
-          <h3 className="text-sm font-semibold text-zinc-200">🌊 Studio Reverb</h3>
+          <span
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm transition ${
+              enabled ? "bg-accent/20 shadow-[0_0_10px_rgba(124,92,255,0.5)]" : "bg-white/5 grayscale opacity-60"
+            }`}
+          >
+            🌊
+          </span>
+          <h3 className="text-base font-bold leading-none text-white">Studio Reverb</h3>
         </div>
-        <span
-          title="Mix: 웨트/드라이 비율 · Size: 공간감 · Tone: 잔향 밝기"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-surface-border text-[10px] text-zinc-500"
+        <button
+          type="button"
+          onClick={() => onToggle(!enabled)}
+          title={enabled ? "끄기" : "켜기"}
+          className="flex h-7 w-7 shrink-0 items-center justify-center text-xl leading-none text-zinc-500 transition hover:text-zinc-300"
         >
-          i
-        </span>
+          ×
+        </button>
       </div>
 
       <div className={enabled ? "" : "pointer-events-none opacity-40"}>
