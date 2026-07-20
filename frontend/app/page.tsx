@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import FileDropzone from "@/components/FileDropzone";
 import PromptInput from "@/components/PromptInput";
-import ParamSliders from "@/components/ParamSliders";
+import EQKnobs from "@/components/EQKnobs";
 import MasterSettings from "@/components/MasterSettings";
+import ReverbPanel from "@/components/ReverbPanel";
+import StretchPanel from "@/components/StretchPanel";
 import { masterTrack, downloadBlob } from "@/lib/api";
 
 type Status = "idle" | "processing" | "done" | "error";
@@ -28,6 +30,15 @@ export default function Home() {
   const [clarity, setClarity] = useState(0);
   const [targetLufs, setTargetLufs] = useState(-9);
   const [antiAiIntensity, setAntiAiIntensity] = useState(50);
+
+  const [reverbEnabled, setReverbEnabled] = useState(false);
+  const [reverbMix, setReverbMix] = useState(50);
+  const [reverbSize, setReverbSize] = useState(25);
+  const [reverbTone, setReverbTone] = useState(90);
+
+  const [stretchEnabled, setStretchEnabled] = useState(false);
+  const [stretchSpeed, setStretchSpeed] = useState(1.0);
+  const [stretchPitch, setStretchPitch] = useState(0);
 
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -114,6 +125,11 @@ export default function Home() {
         clarity,
         targetLufs,
         antiAiIntensity,
+        reverbMix: reverbEnabled ? reverbMix : 0,
+        reverbSize,
+        reverbTone,
+        stretchSpeed: stretchEnabled ? stretchSpeed : 1.0,
+        stretchPitch: stretchEnabled ? stretchPitch : 0,
       });
 
       if (progressTimerRef.current) {
@@ -168,7 +184,25 @@ export default function Home() {
         <div className="space-y-5 lg:col-span-3">
           <FileDropzone file={file} onFileSelect={setFile} />
           <PromptInput value={prompt} onChange={setPrompt} />
-          <ParamSliders bass={bass} vocal={vocal} clarity={clarity} onChange={handleSliderChange} />
+          <EQKnobs bass={bass} vocal={vocal} clarity={clarity} onChange={handleSliderChange} />
+          <ReverbPanel
+            enabled={reverbEnabled}
+            mix={reverbMix}
+            size={reverbSize}
+            tone={reverbTone}
+            onToggle={setReverbEnabled}
+            onMixChange={setReverbMix}
+            onSizeChange={setReverbSize}
+            onToneChange={setReverbTone}
+          />
+          <StretchPanel
+            enabled={stretchEnabled}
+            speed={stretchSpeed}
+            pitch={stretchPitch}
+            onToggle={setStretchEnabled}
+            onSpeedChange={setStretchSpeed}
+            onPitchChange={setStretchPitch}
+          />
         </div>
 
         <div className="space-y-5 lg:col-span-2">

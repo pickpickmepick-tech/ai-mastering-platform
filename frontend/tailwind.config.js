@@ -9,18 +9,18 @@ module.exports = {
     extend: {
       colors: {
         surface: {
-          DEFAULT: "#0b0d12",
-          card: "#12151c",
-          border: "#22262f",
+          DEFAULT: "#15110d",
+          card: "#211a13",
+          border: "#392c20",
         },
         accent: {
-          DEFAULT: "#7c5cff",
-          soft: "#a78bfa",
-          glow: "#22d3ee",
+          DEFAULT: "#e2854f",
+          soft: "#f0c896",
+          glow: "#ff9a52",
         },
       },
       boxShadow: {
-        glow: "0 0 40px -10px rgba(124, 92, 255, 0.55)",
+        glow: "0 0 40px -10px rgba(226, 133, 79, 0.55)",
       },
     },
   },

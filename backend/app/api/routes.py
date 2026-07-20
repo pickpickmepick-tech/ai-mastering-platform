@@ -37,6 +37,11 @@ async def master(
     clarity: str = Form(""),
     target_lufs: str = Form(""),
     anti_ai_intensity: str = Form(""),
+    reverb_mix: str = Form(""),
+    reverb_size: str = Form(""),
+    reverb_tone: str = Form(""),
+    stretch_speed: str = Form(""),
+    stretch_pitch: str = Form(""),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
@@ -60,6 +65,11 @@ async def master(
     clarity_db = _safe_float(clarity, 0.0)
     target_lufs_val = _safe_float(target_lufs, DEFAULT_TARGET_LUFS)
     anti_ai_val = _safe_float(anti_ai_intensity, 50.0)
+    reverb_mix_val = _safe_float(reverb_mix, 0.0)
+    reverb_size_val = _safe_float(reverb_size, 50.0)
+    reverb_tone_val = _safe_float(reverb_tone, 50.0)
+    stretch_speed_val = _safe_float(stretch_speed, 1.0)
+    stretch_pitch_val = _safe_float(stretch_pitch, 0.0)
 
     try:
         processed, out_sr, report = master_audio(
@@ -71,6 +81,11 @@ async def master(
             target_lufs=target_lufs_val,
             anti_ai_intensity=anti_ai_val / 100.0,
             prompt=prompt,
+            reverb_mix=reverb_mix_val,
+            reverb_size=reverb_size_val,
+            reverb_tone=reverb_tone_val,
+            stretch_speed=stretch_speed_val,
+            stretch_pitch_semitones=stretch_pitch_val,
         )
     except Exception as exc:
         logger.exception("Mastering failed")

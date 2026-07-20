@@ -58,6 +58,8 @@ from .tone_repair import repair_tone
 from .dynamic_eq import DynamicEQ
 from .transient_shaper import shape_transients
 from .anti_ai import apply_anti_ai
+from .reverb import apply_reverb
+from .stretch import apply_stretch
 from .loudness import measure_integrated_lufs
 from .limiter import TruePeakLimiter, true_peak_dbtp
 
@@ -178,6 +180,11 @@ def master_audio(
     target_lufs: float = DEFAULT_TARGET_LUFS,
     anti_ai_intensity: float = 0.5,
     prompt: str = "",
+    reverb_mix: float = 0.0,
+    reverb_size: float = 50.0,
+    reverb_tone: float = 50.0,
+    stretch_speed: float = 1.0,
+    stretch_pitch_semitones: float = 0.0,
 ) -> tuple[np.ndarray, int, dict]:
     """
     audio: shape (channels, samples), float32, normalized to [-1, 1]
@@ -186,6 +193,11 @@ def master_audio(
     audio = np.asarray(audio, dtype=np.float32)
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
+
+    # Speed/pitch ("key up/down") is a creative, duration-changing edit, so it
+    # runs first on the raw input -- everything after (analysis, EQ, loudness
+    # targeting) then operates on the track at its final length/key.
+    audio = apply_stretch(audio, sr, stretch_speed, stretch_pitch_semitones)
 
     bass_db += BASE_BASS_DB
     vocal_db += BASE_VOCAL_DB
@@ -241,6 +253,11 @@ def master_audio(
     # 4. Anti-AI evasion (micro-jitter + gaussian dither)
     stage4 = apply_anti_ai(stage3, work_sr, intensity=float(np.clip(anti_ai_intensity, 0.0, 1.0)))
 
+    # 4b. Studio Reverb send (Mix/Size/Tone). Applied before loudness
+    # targeting so the target LUFS is matched on the track *including* the
+    # reverb tail, not before it.
+    stage4 = apply_reverb(stage4, work_sr, reverb_mix, reverb_size, reverb_tone)
+
     # 5. Loudness-to-target by riding an adaptive limiter ceiling (see
     # docstring): tracks needing heavier low/high correction get a slightly
     # tighter true-peak ceiling as extra safety margin.
@@ -273,6 +290,11 @@ def master_audio(
         "applied_vocal_db": round(vocal_db, 2),
         "applied_clarity_db": round(clarity_db, 2),
         "prompt": prompt,
+        "reverb_mix_pct": reverb_mix,
+        "reverb_size_pct": reverb_size,
+        "reverb_tone_pct": reverb_tone,
+        "stretch_speed": stretch_speed,
+        "stretch_pitch_semitones": stretch_pitch_semitones,
         "analysis": {
             **analysis,
             "low_shelf_cleaner_gain_db": round(low_shelf_gain_db, 2),

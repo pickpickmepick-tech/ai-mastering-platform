@@ -12,6 +12,11 @@ export interface MasterParams {
   clarity: number;
   targetLufs: number;
   antiAiIntensity: number;
+  reverbMix: number;
+  reverbSize: number;
+  reverbTone: number;
+  stretchSpeed: number;
+  stretchPitch: number;
 }
 
 export interface MasterResult {
@@ -36,6 +41,11 @@ export async function masterTrack(
   form.append("clarity", String(params.clarity));
   form.append("target_lufs", String(params.targetLufs));
   form.append("anti_ai_intensity", String(params.antiAiIntensity));
+  form.append("reverb_mix", String(params.reverbMix));
+  form.append("reverb_size", String(params.reverbSize));
+  form.append("reverb_tone", String(params.reverbTone));
+  form.append("stretch_speed", String(params.stretchSpeed));
+  form.append("stretch_pitch", String(params.stretchPitch));
 
   const res = await fetch(`${BACKEND_URL}/api/master`, {
     method: "POST",
