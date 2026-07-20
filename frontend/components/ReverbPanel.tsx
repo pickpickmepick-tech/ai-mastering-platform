@@ -1,6 +1,6 @@
 "use client";
 
-import Knob from "./Knob";
+import { useCallback, useRef } from "react";
 import ToggleSwitch from "./ToggleSwitch";
 
 interface Props {
@@ -14,6 +14,120 @@ interface Props {
   onToneChange: (v: number) => void;
 }
 
+function MixTrack({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  disabled: boolean;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  const updateFromClientX = useCallback(
+    (clientX: number) => {
+      const el = trackRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const pct = ((clientX - rect.left) / rect.width) * 100;
+      onChange(Math.round(Math.min(100, Math.max(0, pct))));
+    },
+    [onChange]
+  );
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (disabled) return;
+    updateFromClientX(e.clientX);
+    const handleMove = (ev: PointerEvent) => updateFromClientX(ev.clientX);
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-10 shrink-0 text-xs text-zinc-500">{Math.round(value)}%</span>
+      <div
+        ref={trackRef}
+        onPointerDown={handlePointerDown}
+        className={`relative h-9 flex-1 touch-none ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+      >
+        <div className="absolute top-1/2 h-px w-full -translate-y-1/2 bg-surface-border" />
+        <div
+          className="absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-accent/50 bg-surface-card px-3 py-1.5 text-xs font-semibold text-accent-soft shadow-glow"
+          style={{ left: `${value}%` }}
+        >
+          Mix <span className="text-[9px]">◆</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniDotSlider({
+  label,
+  value,
+  color,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  onChange: (v: number) => void;
+  disabled: boolean;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const HEIGHT = 44;
+
+  const updateFromClientY = useCallback(
+    (clientY: number) => {
+      const el = trackRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const pct = ((rect.bottom - clientY) / rect.height) * 100;
+      onChange(Math.round(Math.min(100, Math.max(0, pct))));
+    },
+    [onChange]
+  );
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (disabled) return;
+    updateFromClientY(e.clientY);
+    const handleMove = (ev: PointerEvent) => updateFromClientY(ev.clientY);
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <span className="text-[11px] text-zinc-500">{label}</span>
+      <div
+        ref={trackRef}
+        onPointerDown={handlePointerDown}
+        className={`relative w-px touch-none ${disabled ? "cursor-not-allowed" : "cursor-ns-resize"}`}
+        style={{ height: HEIGHT, backgroundColor: "#242534" }}
+      >
+        <div
+          className="absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full"
+          style={{ bottom: `${value}%`, backgroundColor: color, boxShadow: `0 0 8px ${color}` }}
+        />
+      </div>
+      <span className="font-mono text-xs font-semibold" style={{ color }}>
+        {Math.round(value)}%
+      </span>
+    </div>
+  );
+}
+
 export default function ReverbPanel({
   enabled,
   mix,
@@ -24,19 +138,27 @@ export default function ReverbPanel({
   onSizeChange,
   onToneChange,
 }: Props) {
-  const pct = (v: number) => `${Math.round(v)}%`;
   return (
     <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
-          🌊 Studio Reverb
-        </h3>
-        <ToggleSwitch checked={enabled} onChange={onToggle} />
+      <div className="mb-5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <ToggleSwitch checked={enabled} onChange={onToggle} />
+          <h3 className="text-sm font-semibold text-zinc-200">🌊 Studio Reverb</h3>
+        </div>
+        <span
+          title="Mix: 웨트/드라이 비율 · Size: 공간감 · Tone: 잔향 밝기"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-surface-border text-[10px] text-zinc-500"
+        >
+          i
+        </span>
       </div>
-      <div className={`flex justify-around gap-2 ${enabled ? "" : "pointer-events-none opacity-40"}`}>
-        <Knob label="Mix" value={mix} min={0} max={100} step={1} defaultValue={50} displayValue={pct} onChange={onMixChange} disabled={!enabled} />
-        <Knob label="Size" value={size} min={0} max={100} step={1} defaultValue={25} displayValue={pct} onChange={onSizeChange} disabled={!enabled} />
-        <Knob label="Tone" value={tone} min={0} max={100} step={1} defaultValue={90} displayValue={pct} onChange={onToneChange} disabled={!enabled} />
+
+      <div className={enabled ? "" : "pointer-events-none opacity-40"}>
+        <MixTrack value={mix} onChange={onMixChange} disabled={!enabled} />
+        <div className="mt-7 flex justify-center gap-12">
+          <MiniDotSlider label="Size" value={size} color="#ec4899" onChange={onSizeChange} disabled={!enabled} />
+          <MiniDotSlider label="Tone" value={tone} color="#8b5cf6" onChange={onToneChange} disabled={!enabled} />
+        </div>
       </div>
     </div>
   );

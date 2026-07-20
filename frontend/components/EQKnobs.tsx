@@ -25,6 +25,8 @@ export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
           displayValue={fmt}
           onChange={(v) => onChange("bass", v)}
           size={72}
+          color="#22d3ee"
+          glowColor="#67e8f9"
         />
         <Knob
           label="🎤 Mid"
@@ -36,6 +38,8 @@ export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
           displayValue={fmt}
           onChange={(v) => onChange("vocal", v)}
           size={72}
+          color="#8b5cf6"
+          glowColor="#a78bfa"
         />
         <Knob
           label="✨ High"
@@ -47,6 +51,8 @@ export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
           displayValue={fmt}
           onChange={(v) => onChange("clarity", v)}
           size={72}
+          color="#ec4899"
+          glowColor="#f472b6"
         />
       </div>
       <p className="mt-3 text-center text-[11px] text-zinc-600">

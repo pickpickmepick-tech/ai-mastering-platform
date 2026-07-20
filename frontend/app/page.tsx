@@ -168,6 +168,10 @@ export default function Home() {
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-10">
       <header className="mb-10 flex flex-col items-center text-center">
+        <div className="mb-4 flex items-center gap-2 rounded-full border border-surface-border bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent-glow shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+          Pick Me · Mastering Studio
+        </div>
         <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-accent-glow text-3xl shadow-glow">
           🎚️
         </div>
@@ -196,6 +200,7 @@ export default function Home() {
             onToneChange={setReverbTone}
           />
           <StretchPanel
+            file={file}
             enabled={stretchEnabled}
             speed={stretchSpeed}
             pitch={stretchPitch}

@@ -13,6 +13,8 @@ interface KnobProps {
   onChange: (v: number) => void;
   size?: number;
   disabled?: boolean;
+  color?: string;
+  glowColor?: string;
 }
 
 const ANGLE_MIN = -135;
@@ -39,7 +41,10 @@ export default function Knob({
   onChange,
   size = 64,
   disabled = false,
+  color = "#7c5cff",
+  glowColor,
 }: KnobProps) {
+  const glow = glowColor ?? color;
   const gradientId = useId();
   const draggingRef = useRef<{ startY: number; startValue: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -114,7 +119,7 @@ export default function Knob({
       <div
         className={`rounded-full ${disabled ? "opacity-40" : ""}`}
         style={{
-          boxShadow: "0 6px 14px -4px rgba(0,0,0,0.65), 0 2px 4px -1px rgba(0,0,0,0.4)",
+          boxShadow: `0 0 18px -4px ${glow}66, 0 6px 14px -4px rgba(0,0,0,0.6)`,
         }}
       >
         <svg
@@ -131,22 +136,23 @@ export default function Knob({
           aria-label={label}
           className={`touch-none outline-none ${
             disabled ? "cursor-not-allowed" : "cursor-ns-resize"
-          } ${isDragging ? "drop-shadow-[0_0_8px_rgba(226,133,79,0.65)]" : ""}`}
+          }`}
+          style={isDragging ? { filter: `drop-shadow(0 0 8px ${glow}aa)` } : undefined}
         >
           <defs>
             <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#e2854f" />
-              <stop offset="100%" stopColor="#ff9a52" />
+              <stop offset="0%" stopColor={color} />
+              <stop offset="100%" stopColor={glow} />
             </linearGradient>
             <radialGradient id={`${gradientId}-face`} cx="35%" cy="30%" r="75%">
-              <stop offset="0%" stopColor="#f5ead9" />
-              <stop offset="100%" stopColor="#d9c2a0" />
+              <stop offset="0%" stopColor="#22222f" />
+              <stop offset="100%" stopColor="#121219" />
             </radialGradient>
           </defs>
           <path
             d={`M ${fullStart.x} ${fullStart.y} A ${trackRadius} ${trackRadius} 0 1 1 ${fullEnd.x} ${fullEnd.y}`}
             fill="none"
-            stroke="#392c20"
+            stroke="#242534"
             strokeWidth={4}
             strokeLinecap="round"
           />
@@ -162,7 +168,8 @@ export default function Knob({
             cy={r}
             r={trackRadius - 10}
             fill={`url(#${gradientId}-face)`}
-            stroke="#c9ad82"
+            stroke={color}
+            strokeOpacity={0.35}
             strokeWidth={1}
           />
           <line
@@ -170,13 +177,16 @@ export default function Knob({
             y1={r}
             x2={pointerEnd.x}
             y2={pointerEnd.y}
-            stroke="#2a1f16"
+            stroke="#f5f3ff"
             strokeWidth={2.5}
             strokeLinecap="round"
           />
         </svg>
       </div>
-      <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-[11px] text-accent-soft">
+      <span
+        className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-[11px]"
+        style={{ color: glow }}
+      >
         {displayValue ? displayValue(value) : value}
       </span>
     </div>
