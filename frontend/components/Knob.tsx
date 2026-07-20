@@ -49,6 +49,42 @@ export default function Knob({
   const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  // `value` changes from our own drag/keyboard input snap instantly (1:1
+  // with the pointer). A `value` change from *outside* (e.g. an AI preset
+  // moving the knob) instead tweens smoothly over ANIMATE_MS so it visibly
+  // "glides" into place. `internalChangeRef` distinguishes the two.
+  const [displayVal, setDisplayVal] = useState(value);
+  const internalChangeRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (internalChangeRef.current) {
+      internalChangeRef.current = false;
+      setDisplayVal(value);
+      return;
+    }
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    const from = displayVal;
+    const delta = value - from;
+    if (Math.abs(delta) < 1e-6) return;
+    const ANIMATE_MS = 550;
+    const startTime = performance.now();
+    const step2 = (now: number) => {
+      const t = Math.min(1, (now - startTime) / ANIMATE_MS);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplayVal(from + delta * eased);
+      rafRef.current = t < 1 ? requestAnimationFrame(step2) : null;
+    };
+    rafRef.current = requestAnimationFrame(step2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
   // Absolute/radial control: the value is derived from the angle between
   // the knob center and the pointer, so clicking (or dragging to) a point
   // to the right of center sets a higher value and a point to the left
@@ -76,6 +112,7 @@ export default function Knob({
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
       if (!isDraggingRef.current) return;
+      internalChangeRef.current = true;
       onChange(valueFromClientPos(e.clientX, e.clientY));
     },
     [onChange, valueFromClientPos]
@@ -102,8 +139,13 @@ export default function Knob({
     // focus explicitly -- otherwise arrow-key adjustment after a click
     // silently does nothing because the knob never actually has focus.
     e.currentTarget.focus();
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     isDraggingRef.current = true;
     setIsDragging(true);
+    internalChangeRef.current = true;
     onChange(valueFromClientPos(e.clientX, e.clientY));
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
@@ -113,15 +155,18 @@ export default function Knob({
     if (disabled) return;
     if (e.key === "ArrowUp" || e.key === "ArrowRight") {
       e.preventDefault();
+      internalChangeRef.current = true;
       onChange(clamp(parseFloat((value + step).toFixed(4)), min, max));
     } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
       e.preventDefault();
+      internalChangeRef.current = true;
       onChange(clamp(parseFloat((value - step).toFixed(4)), min, max));
     }
   };
 
   const handleDoubleClick = () => {
     if (disabled || defaultValue === undefined) return;
+    internalChangeRef.current = true;
     onChange(defaultValue);
   };
 
@@ -129,10 +174,11 @@ export default function Knob({
     if (disabled) return;
     e.preventDefault();
     const direction = e.deltaY < 0 ? 1 : -1;
+    internalChangeRef.current = true;
     onChange(clamp(parseFloat((value + direction * step).toFixed(4)), min, max));
   };
 
-  const angle = ANGLE_MIN + ((value - min) / (max - min)) * (ANGLE_MAX - ANGLE_MIN);
+  const angle = ANGLE_MIN + ((displayVal - min) / (max - min)) * (ANGLE_MAX - ANGLE_MIN);
   const r = size / 2;
   const trackRadius = r - 6;
 
@@ -223,7 +269,7 @@ export default function Knob({
         className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-[11px]"
         style={{ color: glow }}
       >
-        {displayValue ? displayValue(value) : value}
+        {displayValue ? displayValue(displayVal) : displayVal}
       </span>
     </div>
   );

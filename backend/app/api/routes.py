@@ -2,6 +2,8 @@ import asyncio
 import io
 import json
 import logging
+import shutil
+import subprocess
 
 import numpy as np
 import soundfile as sf
@@ -9,6 +11,7 @@ from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ..dsp.mastering_chain import master_audio, DEFAULT_TARGET_LUFS
+from ..dsp.ai_preset import get_ai_preset, quick_frequency_snapshot
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,9 +54,77 @@ def _safe_float(value: str, default: float) -> float:
         return default
 
 
+def _ffmpeg_path() -> str | None:
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return shutil.which("ffmpeg")
+
+
+def _transcode_to_wav(raw: bytes) -> bytes:
+    """Decodes containers libsndfile can't read natively (e.g. M4A/AAC) via ffmpeg."""
+    ffmpeg_exe = _ffmpeg_path()
+    if not ffmpeg_exe:
+        raise RuntimeError("ffmpeg is not available on this server")
+    proc = subprocess.run(
+        [ffmpeg_exe, "-y", "-i", "pipe:0", "-f", "wav", "pipe:1"],
+        input=raw,
+        capture_output=True,
+        timeout=120,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        raise RuntimeError(proc.stderr.decode(errors="ignore")[-500:])
+    return proc.stdout
+
+
+def _read_audio(raw: bytes) -> tuple[np.ndarray, int]:
+    try:
+        return sf.read(io.BytesIO(raw), always_2d=True, dtype="float32")
+    except Exception as sf_exc:
+        try:
+            wav_bytes = _transcode_to_wav(raw)
+        except Exception:
+            raise sf_exc
+        return sf.read(io.BytesIO(wav_bytes), always_2d=True, dtype="float32")
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@router.post("/analyze")
+async def analyze(
+    file: UploadFile = File(...),
+    prompt: str = Form(""),
+):
+    """
+    Fast, render-free pre-flight step: reads a ~10s frequency snapshot and
+    asks Gemini for a starting mastering preset. Returns JSON only (no
+    audio) so the frontend can move the knobs before the user commits to a
+    full render via POST /master.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes)")
+
+    try:
+        data, sr = _read_audio(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read audio file: {exc}")
+
+    if data.size == 0 or data.shape[0] == 0:
+        raise HTTPException(status_code=400, detail="Audio file contains no samples (decoded to 0 frames)")
+
+    audio = data.T  # (channels, samples)
+    snapshot = quick_frequency_snapshot(audio, sr, seconds=10.0)
+    preset = get_ai_preset(prompt, snapshot)
+    return {"snapshot": snapshot, "preset": preset}
 
 
 @router.post("/master")
@@ -65,6 +136,7 @@ async def master(
     clarity: str = Form(""),
     target_lufs: str = Form(""),
     anti_ai_intensity: str = Form(""),
+    chopping_intensity: str = Form(""),
     reverb_mix: str = Form(""),
     reverb_size: str = Form(""),
     reverb_tone: str = Form(""),
@@ -83,7 +155,7 @@ async def master(
     logger.info("route: file read, %d bytes", len(raw))
 
     try:
-        data, sr = sf.read(io.BytesIO(raw), always_2d=True, dtype="float32")
+        data, sr = _read_audio(raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read audio file: {exc}")
 
@@ -102,6 +174,7 @@ async def master(
     clarity_db = _safe_float(clarity, 0.0)
     target_lufs_val = _safe_float(target_lufs, DEFAULT_TARGET_LUFS)
     anti_ai_val = _safe_float(anti_ai_intensity, 50.0)
+    chopping_val = _safe_float(chopping_intensity, 0.0)
     reverb_mix_val = _safe_float(reverb_mix, 0.0)
     reverb_size_val = _safe_float(reverb_size, 50.0)
     reverb_tone_val = _safe_float(reverb_tone, 50.0)
@@ -118,6 +191,7 @@ async def master(
                 clarity_db=clarity_db,
                 target_lufs=target_lufs_val,
                 anti_ai_intensity=anti_ai_val / 100.0,
+                chopping_intensity=chopping_val / 100.0,
                 prompt=prompt,
                 reverb_mix=reverb_mix_val,
                 reverb_size=reverb_size_val,

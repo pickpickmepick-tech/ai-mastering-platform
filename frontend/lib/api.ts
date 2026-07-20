@@ -12,6 +12,7 @@ export interface MasterParams {
   clarity: number;
   targetLufs: number;
   antiAiIntensity: number;
+  choppingIntensity: number;
   reverbMix: number;
   reverbSize: number;
   reverbTone: number;
@@ -23,6 +24,50 @@ export interface MasterResult {
   blob: Blob;
   filename: string;
   report: Record<string, unknown> | null;
+}
+
+export interface AiPreset {
+  low_gain_db: number;
+  mid_gain_db: number;
+  high_gain_db: number;
+  reverb_on: boolean;
+  reverb_mix: number;
+  chopping_level: number;
+  target_lufs: number;
+}
+
+export interface AnalyzeResult {
+  snapshot: { low_db: number; mid_db: number; high_db: number };
+  preset: AiPreset;
+}
+
+/**
+ * Calls the FastAPI backend's /api/analyze endpoint: a fast, render-free
+ * pre-flight step that asks Gemini for a starting mastering preset from a
+ * quick frequency snapshot + the style prompt.
+ */
+export async function analyzeTrack(file: File, prompt: string): Promise<AnalyzeResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("prompt", prompt ?? "");
+
+  const res = await fetch(`${BACKEND_URL}/api/analyze`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const errJson = await res.json();
+      detail = errJson.detail ?? detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(`AI 분석 실패 (${res.status}): ${detail}`);
+  }
+
+  return res.json();
 }
 
 /**
@@ -41,6 +86,7 @@ export async function masterTrack(
   form.append("clarity", String(params.clarity));
   form.append("target_lufs", String(params.targetLufs));
   form.append("anti_ai_intensity", String(params.antiAiIntensity));
+  form.append("chopping_intensity", String(params.choppingIntensity));
   form.append("reverb_mix", String(params.reverbMix));
   form.append("reverb_size", String(params.reverbSize));
   form.append("reverb_tone", String(params.reverbTone));

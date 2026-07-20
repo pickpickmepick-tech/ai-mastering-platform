@@ -32,7 +32,10 @@ def apply_reverb(
 
     size = float(np.clip(size_pct, 0.0, 100.0)) / 100.0
     tone = float(np.clip(tone_pct, 0.0, 100.0)) / 100.0
-    damping = 1.0 - tone
+    # Tone still drives damping (so the knob stays live), but a 0.15 floor
+    # keeps the reverb tail from turning into audible high-frequency
+    # fizz/crackle even at Tone=100%.
+    damping = max(1.0 - tone, 0.15)
 
     board = Pedalboard([
         Reverb(

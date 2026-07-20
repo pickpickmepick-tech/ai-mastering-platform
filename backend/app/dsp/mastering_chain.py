@@ -12,26 +12,36 @@ Order of operations:
       under-corrects a harsher track or over-dulls a cleaner one -- these
       severity scores drive the dynamic_low_cleaner / dynamic_high_cleaner
       / adaptive true-peak ceiling below, instead.
+  NOTE on bass_db/vocal_db/clarity_db: this function does NOT call Gemini.
+      The "AI pre-mastering" starting point (ai_preset.py) is resolved once,
+      up front, by POST /api/analyze -- the frontend moves the Low/Mid/High
+      knobs to that recommendation, the user fine-tunes from there, and
+      whatever the knobs read at render time is what's passed in here
+      directly. This keeps the render path fast, offline-capable and
+      deterministic: the value previewed is exactly the value rendered.
   1. Tone Repair (tone_repair.py): fixed corrective EQ (highpass, fizz/mud
       dips) plus the *dynamic* de-essing depth and lowpass slope steepness
       from dynamic_high_cleaner_params.
   1b. dynamic_low_cleaner: LowShelfFilter(90Hz), gain interpolated
       -3.0..-7.0dB from low_severity.
   2. True 120Hz multiband split (Linkwitz-Riley crossover, lowband.py):
-      - Low band (<=120Hz): static bass tonal shelf (user slider) + an
-        *independent* compressor with an 800ms release, so a long bass cycle
-        is never fought mid-waveform by a shared envelope also trying to
-        react to vocals/highs (this is what caused the low-end
-        pumping/tearing).
-      - High band (>120Hz): the (now bass-free) Dynamic EQ, vocal/clarity
-        bands only.
+      - Low band (<=120Hz): 90Hz LowShelfFilter (bass_db) + an *independent*
+        compressor with an 800ms release, so a long bass cycle is never
+        fought mid-waveform by a shared envelope also trying to react to
+        vocals/highs (this is what caused the low-end pumping/tearing).
+      - High band (>120Hz): the (now bass-free) Dynamic EQ -- 1000Hz
+        PeakFilter Q0.7 (vocal_db) and 8000Hz HighShelfFilter (clarity_db).
       Recombined by simple addition (the LR4 split reconstructs flat).
+  2b. Anti-AI Chopping (chopping.py): pinpoint notches at 7.2kHz (Q2.5) and
+      14kHz (Q1.5) -- Suno's characteristic HF noise clusters -- plus a
+      parallel-band compressor on that same region so transient spikes get
+      smoothly clamped rather than passing through the static notch.
   3. Smart Transient Shaper (automatic, on the recombined signal)
-  4. Anti-AI processing     (micro-jitter + Gaussian dither, intensity slider)
+  4. Anti-AI fingerprint evasion (micro-jitter + Gaussian dither, intensity slider)
   5. Loudness-to-target *by riding the limiter's ceiling*, not by computing a
       static makeup gain and then slamming a fixed limiter with it. A
       binary search finds how hard to drive into a limiter whose ceiling is
-      already fixed at an *adaptive_ceiling_db* (tightened below the -1.5
+      already fixed at an *adaptive_ceiling_db* (tightened below the -1.2
       dBTP baseline for tracks that needed heavier low/high correction),
       converging on target_lufs without ever exceeding that ceiling.
  +1. Downsample to the 44.1kHz export rate, then re-run the true-peak
@@ -64,6 +74,7 @@ from .tone_repair import repair_tone
 from .dynamic_eq import DynamicEQ
 from .transient_shaper import shape_transients
 from .anti_ai import apply_anti_ai
+from .chopping import apply_chopping
 from .reverb import apply_reverb
 from .stretch import apply_stretch
 from .loudness import measure_integrated_lufs
@@ -101,7 +112,7 @@ def _resample(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
 # this ceiling -- never by a pre-gain boost applied ahead of a fixed limiter.
 # The actual ceiling used per-track is tightened further by adaptive_ceiling_db
 # based on how much correction that track's own analysis needed.
-BASE_TRUE_PEAK_CEILING_DBTP = -1.5
+BASE_TRUE_PEAK_CEILING_DBTP = -1.2
 
 CROSSOVER_HZ = 120.0
 LOW_SHELF_CLEANER_HZ = 90.0
@@ -128,41 +139,7 @@ UPSAMPLE_RATE = 48000
 # Standard rate the final master is delivered at.
 EXPORT_RATE = 44100
 
-# Always-on baseline tonal lift for Suno-generated audio (its typical output is
-# comparatively dull/boxy), applied on top of the user's sliders so that even
-# 0 dB sliders yield an audibly upgraded master.
-BASE_BASS_DB = 1.5
-BASE_VOCAL_DB = 1.0
-BASE_CLARITY_DB = 2.0
-
 DEFAULT_TARGET_LUFS = -9.0
-
-_PROMPT_KEYWORDS = {
-    "bass": {"bass": 1.5, "clarity": 0.0, "vocal": 0.0},
-    "warm": {"bass": 1.0, "clarity": -0.5, "vocal": 0.0},
-    "bright": {"bass": -0.5, "clarity": 1.5, "vocal": 0.0},
-    "vocal": {"bass": 0.0, "clarity": 0.0, "vocal": 1.5},
-    "clean": {"bass": 0.0, "clarity": 1.0, "vocal": 0.5},
-    "punchy": {"bass": 1.0, "clarity": 0.5, "vocal": 0.0},
-    "lofi": {"bass": 0.5, "clarity": -1.5, "vocal": 0.0},
-    "airy": {"bass": -0.5, "clarity": 2.0, "vocal": 0.0},
-}
-
-
-def apply_prompt_bias(prompt: str, bass_db: float, vocal_db: float, clarity_db: float):
-    """Nudges slider values slightly based on Suno-style prompt keywords."""
-    if not prompt:
-        return bass_db, vocal_db, clarity_db
-    lowered = prompt.lower()
-    for kw, deltas in _PROMPT_KEYWORDS.items():
-        if kw in lowered:
-            bass_db += deltas["bass"]
-            vocal_db += deltas["vocal"]
-            clarity_db += deltas["clarity"]
-    bass_db = float(np.clip(bass_db, -12.0, 12.0))
-    vocal_db = float(np.clip(vocal_db, -12.0, 12.0))
-    clarity_db = float(np.clip(clarity_db, -12.0, 12.0))
-    return bass_db, vocal_db, clarity_db
 
 
 def _ride_limiter_to_target(
@@ -221,6 +198,7 @@ def master_audio(
     clarity_db: float = 0.0,
     target_lufs: float = DEFAULT_TARGET_LUFS,
     anti_ai_intensity: float = 0.5,
+    chopping_intensity: float = 0.0,
     prompt: str = "",
     reverb_mix: float = 0.0,
     reverb_size: float = 50.0,
@@ -244,12 +222,6 @@ def master_audio(
     audio = apply_stretch(audio, sr, stretch_speed, stretch_pitch_semitones)
     logger.info("master_audio: checkpoint after stretch")
 
-    bass_db += BASE_BASS_DB
-    vocal_db += BASE_VOCAL_DB
-    clarity_db += BASE_CLARITY_DB
-
-    bass_db, vocal_db, clarity_db = apply_prompt_bias(prompt, bass_db, vocal_db, clarity_db)
-
     # -1. Upsample to the 96kHz working resolution for the entire chain.
     hi_res = _resample(audio, sr, UPSAMPLE_RATE).astype(np.float32)
     work_sr = UPSAMPLE_RATE
@@ -270,6 +242,15 @@ def master_audio(
         deess_gain_db = SAFE_DEFAULT_DEESS_GAIN_DB
         lowpass_stages = SAFE_DEFAULT_LOWPASS_STAGES
     logger.info("master_audio: checkpoint after adaptive analysis")
+
+    # bass_db/vocal_db/clarity_db arrive already resolved (AI preset +
+    # user fine-tuning, decided once up front by POST /api/analyze and the
+    # frontend's knob state) -- this function just renders them. No Gemini
+    # call happens on this path, so the render is fast and deterministic:
+    # the value the user previewed is exactly the value that gets printed.
+    bass_db = float(np.clip(bass_db, -12.0, 12.0))
+    vocal_db = float(np.clip(vocal_db, -12.0, 12.0))
+    clarity_db = float(np.clip(clarity_db, -12.0, 12.0))
 
     # 1. Tone repair, parameterized by the dynamic_high_cleaner results.
     stage1 = repair_tone(hi_res, work_sr, deess_gain_db=deess_gain_db, lowpass_stages=lowpass_stages)
@@ -300,12 +281,16 @@ def master_audio(
     combined = low + high
     del low, high
 
+    # 2b. Anti-AI Chopping: pinpoint notches at 7.2kHz/14kHz (Suno's HF noise
+    # clusters) plus a parallel-band compressor on that same region.
+    combined = apply_chopping(combined, work_sr, intensity=float(np.clip(chopping_intensity, 0.0, 1.0)))
+
     # 3. Smart Transient Shaper
     stage3 = shape_transients(combined, work_sr)
     del combined
     logger.info("master_audio: checkpoint after transient shaper, rss=%.0fMB", _rss_mb())
 
-    # 4. Anti-AI evasion (micro-jitter + gaussian dither)
+    # 4. Anti-AI fingerprint evasion (micro-jitter + gaussian dither)
     stage4 = apply_anti_ai(stage3, work_sr, intensity=float(np.clip(anti_ai_intensity, 0.0, 1.0)))
     del stage3
     logger.info("master_audio: checkpoint after anti-ai, rss=%.0fMB", _rss_mb())
@@ -352,6 +337,7 @@ def master_audio(
         "final_true_peak_dbtp": round(final_true_peak, 2),
         "true_peak_ceiling_dbtp": round(ceiling_db, 2),
         "anti_ai_intensity": anti_ai_intensity,
+        "chopping_intensity": chopping_intensity,
         "applied_bass_db": round(bass_db, 2),
         "applied_vocal_db": round(vocal_db, 2),
         "applied_clarity_db": round(clarity_db, 2),

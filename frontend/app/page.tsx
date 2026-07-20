@@ -9,7 +9,8 @@ import ReverbPanel from "@/components/ReverbPanel";
 import StretchPanel from "@/components/StretchPanel";
 import LivePreview from "@/components/LivePreview";
 import WaveformPlayer from "@/components/WaveformPlayer";
-import { masterTrack, downloadBlob } from "@/lib/api";
+import LivePreviewPlayer from "@/components/LivePreviewPlayer";
+import { masterTrack, downloadBlob, analyzeTrack } from "@/lib/api";
 
 type Status = "idle" | "processing" | "done" | "error";
 type CompareMode = "before" | "after";
@@ -32,6 +33,7 @@ export default function Home() {
   const [clarity, setClarity] = useState(0);
   const [targetLufs, setTargetLufs] = useState(-9);
   const [antiAiIntensity, setAntiAiIntensity] = useState(50);
+  const [choppingIntensity, setChoppingIntensity] = useState(0);
 
   const [reverbEnabled, setReverbEnabled] = useState(false);
   const [reverbMix, setReverbMix] = useState(50);
@@ -45,6 +47,10 @@ export default function Home() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [report, setReport] = useState<Record<string, unknown> | null>(null);
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState("");
+  const [aiAnalyzed, setAiAnalyzed] = useState(false);
 
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [masteredUrl, setMasteredUrl] = useState<string | null>(null);
@@ -100,6 +106,33 @@ export default function Home() {
     if (key === "clarity") setClarity(value);
   };
 
+  const handleAnalyze = async () => {
+    if (!file) {
+      alert("먼저 음원 파일을 업로드해주세요.");
+      return;
+    }
+    setIsAnalyzing(true);
+    setAnalyzeError("");
+    try {
+      const { preset } = await analyzeTrack(file, prompt);
+      // Each knob/slider moves to the AI's recommended position -- the Knob
+      // component tweens smoothly toward it since this is an external
+      // (non-drag) value change. From here the user fine-tunes normally.
+      setBass(preset.low_gain_db);
+      setVocal(preset.mid_gain_db);
+      setClarity(preset.high_gain_db);
+      setTargetLufs(preset.target_lufs);
+      setChoppingIntensity(preset.chopping_level * 100);
+      setReverbEnabled(preset.reverb_on);
+      if (preset.reverb_on) setReverbMix(preset.reverb_mix * 100);
+      setAiAnalyzed(true);
+    } catch (err) {
+      setAnalyzeError(err instanceof Error ? err.message : "AI 분석 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleMaster = async () => {
     if (!file) {
       alert("먼저 음원 파일을 업로드해주세요.");
@@ -131,6 +164,7 @@ export default function Home() {
         clarity,
         targetLufs,
         antiAiIntensity,
+        choppingIntensity,
         reverbMix: reverbEnabled ? reverbMix : 0,
         reverbSize,
         reverbTone,
@@ -208,6 +242,39 @@ export default function Home() {
             stretchPitch={stretchPitch}
           />
           <PromptInput value={prompt} onChange={setPrompt} />
+
+          <button
+            type="button"
+            onClick={handleAnalyze}
+            disabled={isAnalyzing || !file}
+            className="w-full rounded-2xl border border-accent/40 bg-accent/10 px-6 py-3.5 text-sm font-bold text-accent-soft shadow-glow transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isAnalyzing ? "🤖 AI가 음원 주파수 분포 및 장르 분석 중..." : "🤖 AI 자동 분석 시작"}
+          </button>
+          {aiAnalyzed && !isAnalyzing && (
+            <p className="-mt-2 text-center text-[11px] text-accent-soft">
+              ✓ AI 추천 프리셋이 아래 노브에 반영되었습니다 — 이어서 미세 조정하세요.
+            </p>
+          )}
+          {analyzeError && (
+            <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {analyzeError}
+            </div>
+          )}
+
+          <LivePreviewPlayer
+            file={file}
+            bass={bass}
+            vocal={vocal}
+            clarity={clarity}
+            reverbMix={reverbEnabled ? reverbMix : 0}
+            reverbSize={reverbSize}
+            reverbTone={reverbTone}
+            choppingIntensity={choppingIntensity}
+            stretchSpeed={stretchEnabled ? stretchSpeed : 1.0}
+            stretchPitch={stretchEnabled ? stretchPitch : 0}
+          />
+
           <EQKnobs bass={bass} vocal={vocal} clarity={clarity} onChange={handleSliderChange} />
           <ReverbPanel
             enabled={reverbEnabled}
@@ -220,6 +287,7 @@ export default function Home() {
             onToneChange={setReverbTone}
           />
           <StretchPanel
+            file={file}
             enabled={stretchEnabled}
             speed={stretchSpeed}
             pitch={stretchPitch}
@@ -233,8 +301,10 @@ export default function Home() {
           <MasterSettings
             targetLufs={targetLufs}
             antiAiIntensity={antiAiIntensity}
+            choppingIntensity={choppingIntensity}
             onLufsChange={setTargetLufs}
             onAntiAiChange={setAntiAiIntensity}
+            onChoppingChange={setChoppingIntensity}
           />
 
           <button

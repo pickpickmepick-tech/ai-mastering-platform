@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
-  const fmt = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+  const fmt = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(2)} dB`;
   return (
     <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
       <h3 className="mb-4 text-sm font-semibold text-zinc-200">톤 밸런스 (Low / Mid / High)</h3>
@@ -20,7 +20,7 @@ export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
           value={bass}
           min={-12}
           max={12}
-          step={0.5}
+          step={0.05}
           defaultValue={0}
           displayValue={fmt}
           onChange={(v) => onChange("bass", v)}
@@ -33,7 +33,7 @@ export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
           value={vocal}
           min={-12}
           max={12}
-          step={0.5}
+          step={0.05}
           defaultValue={0}
           displayValue={fmt}
           onChange={(v) => onChange("vocal", v)}
@@ -46,7 +46,7 @@ export default function EQKnobs({ bass, vocal, clarity, onChange }: Props) {
           value={clarity}
           min={-12}
           max={12}
-          step={0.5}
+          step={0.05}
           defaultValue={0}
           displayValue={fmt}
           onChange={(v) => onChange("clarity", v)}

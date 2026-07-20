@@ -1,6 +1,7 @@
 "use client";
 
 interface Props {
+  file: File | null;
   enabled: boolean;
   speed: number;
   pitch: number;
@@ -11,11 +12,13 @@ interface Props {
 
 const SPEED_MIN = 0.5;
 const SPEED_MAX = 2.0;
-const SPEED_STEP = 0.05;
+const SPEED_STEP = 0.01;
 const PITCH_MIN = -12;
 const PITCH_MAX = 12;
+const PITCH_STEP = 0.01;
 
 export default function StretchPanel({
+  file,
   enabled,
   speed,
   pitch,
@@ -44,24 +47,31 @@ export default function StretchPanel({
         <button
           type="button"
           onClick={() => onToggle(!enabled)}
-          title={enabled ? "끄기" : "켜기"}
           aria-pressed={enabled}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-            enabled ? "bg-accent" : "bg-white/10"
-          }`}
+          title={enabled ? "끄기" : "켜기"}
+          className="flex items-center gap-2"
         >
+          <span className={`text-[11px] font-semibold ${enabled ? "text-accent-soft" : "text-zinc-600"}`}>
+            {enabled ? "ON" : "OFF"}
+          </span>
           <span
-            className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              enabled ? "translate-x-[20px]" : "translate-x-0"
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              enabled ? "bg-accent shadow-glow" : "bg-white/10"
             }`}
-          />
+          >
+            <span
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                enabled ? "translate-x-[22px]" : "translate-x-0.5"
+              }`}
+            />
+          </span>
         </button>
       </div>
 
       <div className={enabled ? "" : "pointer-events-none opacity-40"}>
         <div className="flex items-center justify-around gap-4">
           <Stepper
-            label="SPEED"
+            label="SPEED (음원 속도)"
             display={`${speed.toFixed(2)}x`}
             onDecrement={() =>
               onSpeedChange((prev) => Math.max(SPEED_MIN, parseFloat((prev - SPEED_STEP).toFixed(2))))
@@ -73,26 +83,30 @@ export default function StretchPanel({
             incLabel="+"
           />
           <Stepper
-            label="PITCH"
+            label="PITCH (미세 조정)"
             display={`${pitch > 0 ? "+" : ""}${pitch.toFixed(2)} st`}
-            onDecrement={() => onPitchChange((prev) => Math.max(PITCH_MIN, prev - 1))}
-            onIncrement={() => onPitchChange((prev) => Math.min(PITCH_MAX, prev + 1))}
+            onDecrement={() =>
+              onPitchChange((prev) => Math.max(PITCH_MIN, parseFloat((prev - PITCH_STEP).toFixed(2))))
+            }
+            onIncrement={() =>
+              onPitchChange((prev) => Math.min(PITCH_MAX, parseFloat((prev + PITCH_STEP).toFixed(2))))
+            }
             decLabel="♭"
             incLabel="♯"
           />
         </div>
 
         <p className="mt-3 text-center text-[11px] text-zinc-600">
-          속도와 피치는 서로 독립적으로 조절됩니다. 위 라이브 미리듣기에 바로 반영되며, 실제
-          마스터링 결과물은 서버에서 고품질 알고리즘으로 처리됩니다.
+          속도와 피치는 서로 독립적으로 조절됩니다. 위 실시간 미리듣기 플레이어에서 바로 들으며 조절하세요.
         </p>
 
         <button
           type="button"
           onClick={handleUndo}
-          className="mt-4 w-full rounded-xl border border-surface-border bg-white/[0.03] py-2.5 text-xs font-semibold text-zinc-400 transition hover:border-accent/40 hover:text-accent-soft"
+          disabled={!file}
+          className="mt-4 w-full rounded-xl border border-surface-border bg-white/[0.03] py-2.5 text-xs font-semibold text-zinc-400 transition hover:border-accent/40 hover:text-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
-          되돌리기
+          되돌리기 (1.00x / 0 st)
         </button>
       </div>
     </div>

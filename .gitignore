@@ -8,4 +8,6 @@ frontend/.next/
 *.zip
 *_test*.wav
 mastered_result*.wav
+.env
+backend/.env
 .claude/settings.local.json

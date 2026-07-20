@@ -100,8 +100,8 @@ class DynamicEQ:
     def __init__(self, sample_rate: int, vocal_db: float, clarity_db: float):
         self.sr = sample_rate
         self.bands = [
-            _Band("vocal", "peak", 2200.0, 1.1, vocal_db, 800.0, 4500.0),
-            _Band("clarity", "high_shelf", 9000.0, 0.8, clarity_db, 6000.0, 16000.0),
+            _Band("vocal", "peak", 1000.0, 0.7, vocal_db, 500.0, 2000.0),
+            _Band("clarity", "high_shelf", 8000.0, 0.8, clarity_db, 6000.0, 16000.0),
         ]
         hop_ms = (self._BLOCK // 2) / sample_rate * 1000.0
         for b in self.bands:
