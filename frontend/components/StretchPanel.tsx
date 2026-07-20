@@ -17,7 +17,7 @@ const SPEED_MAX = 2.0;
 const SPEED_STEP = 0.05;
 const PITCH_MIN = -12;
 const PITCH_MAX = 12;
-const PEAK_BUCKETS = 260;
+const PEAK_BUCKETS = 48;
 
 function computePeaks(buffer: AudioBuffer, buckets: number): number[] {
   const data = buffer.getChannelData(0);
@@ -270,7 +270,7 @@ export default function StretchPanel({
           <>
             <div
               onClick={handleSeek}
-              className="relative h-16 cursor-pointer overflow-hidden rounded-lg bg-black/30"
+              className="relative h-20 cursor-pointer overflow-hidden rounded-lg bg-black/30"
             >
               {isDecoding ? (
                 <div className="flex h-full items-center justify-center text-[11px] text-zinc-600">
@@ -278,16 +278,18 @@ export default function StretchPanel({
                 </div>
               ) : (
                 <>
-                  <div className="flex h-full items-end gap-px px-1 py-1.5">
+                  <div className="flex h-full items-center gap-1 px-2 py-2">
                     {peaks.map((p, i) => {
                       const played = duration > 0 && i / peaks.length < currentTime / duration;
                       return (
                         <div
                           key={i}
-                          className="flex-1 rounded-sm"
+                          className="min-h-[6%] flex-1 rounded-full"
                           style={{
-                            height: `${Math.max(4, p * 100)}%`,
-                            backgroundColor: played ? "#8b5cf6" : "#31324a",
+                            height: `${Math.max(10, p * 100)}%`,
+                            background: played
+                              ? "linear-gradient(180deg, #22d3ee, #8b5cf6)"
+                              : "linear-gradient(180deg, #3d3d56, #2a2a3d)",
                           }}
                         />
                       );
