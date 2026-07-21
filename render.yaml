@@ -4,12 +4,13 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    plan: free
+    # Standard (2GB RAM) -- the DSP chain's baseline footprint (numpy/scipy/
+    # pedalboard imports) alone is ~330MB, leaving too little headroom on
+    # the 512MB free/starter tiers for anything but very short clips.
+    plan: standard
     healthCheckPath: /api/health
     envVars:
       # Public URL of the frontend service, used to allow it through CORS.
-      # Update this to match the frontend's actual onrender.com URL shown
-      # in the Render dashboard after first deploy, if it differs.
       - key: FRONTEND_ORIGIN
         value: https://ai-mastering-frontend.onrender.com
 
@@ -21,8 +22,7 @@ services:
     plan: free
     envVars:
       # Public URL of the backend service, baked into the frontend at build
-      # time. Update this to match the backend's actual onrender.com URL
-      # shown in the Render dashboard after first deploy, if it differs,
-      # then trigger a manual redeploy (rebuild) of this service.
+      # time (it got a "-iifp" suffix from Render since the plain name was
+      # unavailable -- confirmed via the deployed backend's health check).
       - key: NEXT_PUBLIC_BACKEND_URL
-        value: https://ai-mastering-backend.onrender.com
+        value: https://ai-mastering-backend-iifp.onrender.com
