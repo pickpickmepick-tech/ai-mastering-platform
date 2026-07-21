@@ -46,4 +46,8 @@ app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 def root():
-    return {"service": "ai-mastering-platform-backend", "status": "running"}
+    return {
+        "service": "ai-mastering-platform-backend",
+        "status": "running",
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "unknown"),
+    }
