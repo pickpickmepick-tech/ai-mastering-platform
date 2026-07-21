@@ -42,6 +42,7 @@ Order of operations:
 from __future__ import annotations
 
 import logging
+import math
 
 try:
     import resource  # Unix-only; unavailable on Windows (local dev).
@@ -49,7 +50,7 @@ except ImportError:
     resource = None
 
 import numpy as np
-from scipy.signal import resample
+from scipy.signal import resample_poly
 from pedalboard import Pedalboard, LowShelfFilter
 
 from .adaptive_analyzer import (
@@ -76,6 +77,24 @@ def _rss_mb() -> float:
     if resource is None:
         return -1.0
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+
+
+def _resample(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """
+    Sample-rate conversion via polyphase filtering (scipy.signal.resample_poly)
+    instead of scipy.signal.resample's FFT method. The FFT method needs a
+    full-length complex intermediate array (and internally pads to a
+    "nice" FFT size), which spikes peak memory badly on multi-minute tracks
+    -- this was the actual cause of OOM crashes on real-length songs, not
+    the DSP stages themselves. Polyphase filtering processes the signal
+    with a small FIR kernel and integer up/down factors, so its memory use
+    stays close to the input/output array size regardless of track length.
+    """
+    if orig_sr == target_sr:
+        return audio
+    g = math.gcd(orig_sr, target_sr)
+    up, down = target_sr // g, orig_sr // g
+    return resample_poly(audio, up, down, axis=1)
 
 # Safe headroom kept below the absolute -1.0 dBTP digital ceiling. Loudness is
 # only ever raised by driving harder into a limiter that already enforces
@@ -226,9 +245,7 @@ def master_audio(
     bass_db, vocal_db, clarity_db = apply_prompt_bias(prompt, bass_db, vocal_db, clarity_db)
 
     # -1. Upsample to the 96kHz working resolution for the entire chain.
-    n_in = audio.shape[1]
-    n_hi = int(round(n_in * UPSAMPLE_RATE / sr))
-    hi_res = resample(audio, n_hi, axis=1).astype(np.float32)
+    hi_res = _resample(audio, sr, UPSAMPLE_RATE).astype(np.float32)
     work_sr = UPSAMPLE_RATE
     logger.info("master_audio: checkpoint after upsample, hi_res shape=%s, rss=%.0fMB", hi_res.shape, _rss_mb())
 
@@ -308,8 +325,7 @@ def master_audio(
     # +1. Downsample the finished hi-res master down to the 44.1kHz export
     # rate, then re-lock the same adaptive true-peak ceiling once more since
     # downsampling reconstruction can reintroduce a small amount of ripple.
-    n_out = int(round(stage5.shape[1] * EXPORT_RATE / work_sr))
-    export_audio = resample(stage5, n_out, axis=1).astype(np.float32)
+    export_audio = _resample(stage5, work_sr, EXPORT_RATE).astype(np.float32)
     del stage5
     logger.info("master_audio: checkpoint after downsample")
     export_limiter = TruePeakLimiter(EXPORT_RATE, ceiling_db=ceiling_db)
