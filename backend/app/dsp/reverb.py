@@ -43,4 +43,4 @@ def apply_reverb(
             width=1.0,
         )
     ])
-    return board(audio, sr).astype(np.float32)
+    return board(audio, sr).astype(np.float32, copy=False)

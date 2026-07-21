@@ -100,7 +100,12 @@ SAFE_DEFAULT_DEESS_GAIN_DB = -3.0
 SAFE_DEFAULT_LOWPASS_STAGES = 1
 
 # High-resolution working rate that all mastering DSP runs at internally.
-UPSAMPLE_RATE = 96000
+# 48kHz is still a full 2x oversample over the 44.1kHz export rate (plenty
+# of anti-aliasing/inter-sample-peak headroom for the nonlinear stages), at
+# roughly half the memory/CPU cost of the previous 96kHz -- important on a
+# memory-constrained host, since this buffer (and copies of it) dominate
+# peak RSS for the whole request.
+UPSAMPLE_RATE = 48000
 # Standard rate the final master is delivered at.
 EXPORT_RATE = 44100
 
@@ -245,21 +250,23 @@ def master_audio(
 
     # 1. Tone repair, parameterized by the dynamic_high_cleaner results.
     stage1 = repair_tone(hi_res, work_sr, deess_gain_db=deess_gain_db, lowpass_stages=lowpass_stages)
+    del hi_res  # superseded; drop the reference so the buffer frees immediately
     logger.info("master_audio: checkpoint after tone repair")
 
     # 1b. dynamic_low_cleaner: adaptive 90Hz low-shelf trim.
     low_cleaner_board = Pedalboard([
         LowShelfFilter(cutoff_frequency_hz=LOW_SHELF_CLEANER_HZ, gain_db=low_shelf_gain_db)
     ])
-    stage1 = low_cleaner_board(stage1, work_sr).astype(np.float32)
+    stage1 = low_cleaner_board(stage1, work_sr).astype(np.float32, copy=False)
     logger.info("master_audio: checkpoint after low-shelf cleaner")
 
     # 2. True multiband split at 120Hz: independent low-band handling.
     low, high = split_bands(stage1, work_sr, crossover_hz=CROSSOVER_HZ)
+    del stage1
     logger.info("master_audio: checkpoint after band split")
 
     bass_board = Pedalboard([LowShelfFilter(cutoff_frequency_hz=100.0, gain_db=bass_db)])
-    low = bass_board(low, work_sr).astype(np.float32)
+    low = bass_board(low, work_sr).astype(np.float32, copy=False)
     low = compress_low_band(low, work_sr, release_ms=800.0)
     logger.info("master_audio: checkpoint after low-band compress")
 
@@ -268,13 +275,16 @@ def master_audio(
     logger.info("master_audio: checkpoint after dynamic EQ")
 
     combined = low + high
+    del low, high
 
     # 3. Smart Transient Shaper
     stage3 = shape_transients(combined, work_sr)
+    del combined
     logger.info("master_audio: checkpoint after transient shaper")
 
     # 4. Anti-AI evasion (micro-jitter + gaussian dither)
     stage4 = apply_anti_ai(stage3, work_sr, intensity=float(np.clip(anti_ai_intensity, 0.0, 1.0)))
+    del stage3
     logger.info("master_audio: checkpoint after anti-ai")
 
     # 4b. Studio Reverb send (Mix/Size/Tone). Applied before loudness
@@ -292,6 +302,7 @@ def master_audio(
     stage5, measured_lufs_before, _ = _ride_limiter_to_target(
         stage4, work_sr, target_lufs, ceiling_db
     )
+    del stage4
     logger.info("master_audio: checkpoint after loudness ride")
 
     # +1. Downsample the finished hi-res master down to the 44.1kHz export
@@ -299,6 +310,7 @@ def master_audio(
     # downsampling reconstruction can reintroduce a small amount of ripple.
     n_out = int(round(stage5.shape[1] * EXPORT_RATE / work_sr))
     export_audio = resample(stage5, n_out, axis=1).astype(np.float32)
+    del stage5
     logger.info("master_audio: checkpoint after downsample")
     export_limiter = TruePeakLimiter(EXPORT_RATE, ceiling_db=ceiling_db)
     final_audio = export_limiter.process(export_audio)

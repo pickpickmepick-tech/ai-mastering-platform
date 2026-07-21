@@ -39,4 +39,4 @@ def repair_tone(
         PeakFilter(cutoff_frequency_hz=120.0, gain_db=-2.0, q=1.2),
     ]
     board = Pedalboard(plugins)
-    return board(audio, sr).astype(np.float32)
+    return board(audio, sr).astype(np.float32, copy=False)
