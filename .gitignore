@@ -6,4 +6,6 @@ frontend/.next/
 *.log
 *.pid
 *.zip
+*_test*.wav
+mastered_result*.wav
 .claude/settings.local.json
