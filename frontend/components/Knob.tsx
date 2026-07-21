@@ -19,7 +19,6 @@ interface KnobProps {
 
 const ANGLE_MIN = -135;
 const ANGLE_MAX = 135;
-const DRAG_PX_FOR_FULL_RANGE = 160;
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
@@ -46,24 +45,44 @@ export default function Knob({
 }: KnobProps) {
   const glow = glowColor ?? color;
   const gradientId = useId();
-  const draggingRef = useRef<{ startY: number; startValue: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Absolute/radial control: the value is derived from the angle between
+  // the knob center and the pointer, so clicking (or dragging to) a point
+  // to the right of center sets a higher value and a point to the left
+  // sets a lower value -- matching the arc drawn on the dial.
+  const valueFromClientPos = useCallback(
+    (clientX: number, clientY: number) => {
+      const svg = svgRef.current;
+      if (!svg) return value;
+      const rect = svg.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = clientX - cx;
+      const dy = clientY - cy;
+      let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+      if (angle > 180) angle -= 360;
+      if (angle < -180) angle += 360;
+      angle = clamp(angle, ANGLE_MIN, ANGLE_MAX);
+      const raw = min + ((angle - ANGLE_MIN) / (ANGLE_MAX - ANGLE_MIN)) * (max - min);
+      const stepped = Math.round(raw / step) * step;
+      return clamp(parseFloat(stepped.toFixed(4)), min, max);
+    },
+    [max, min, step, value]
+  );
 
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
-      if (!draggingRef.current) return;
-      const { startY, startValue } = draggingRef.current;
-      const deltaY = startY - e.clientY;
-      const range = max - min;
-      const rawDelta = (deltaY / DRAG_PX_FOR_FULL_RANGE) * range;
-      const stepped = Math.round((startValue + rawDelta) / step) * step;
-      onChange(clamp(parseFloat(stepped.toFixed(4)), min, max));
+      if (!isDraggingRef.current) return;
+      onChange(valueFromClientPos(e.clientX, e.clientY));
     },
-    [max, min, step, onChange]
+    [onChange, valueFromClientPos]
   );
 
   const handlePointerUp = useCallback(() => {
-    draggingRef.current = null;
+    isDraggingRef.current = false;
     setIsDragging(false);
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", handlePointerUp);
@@ -76,11 +95,16 @@ export default function Knob({
     };
   }, [handlePointerMove]);
 
-  const handlePointerDown = (e: React.PointerEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (disabled) return;
     e.preventDefault();
-    draggingRef.current = { startY: e.clientY, startValue: value };
+    // preventDefault above stops the browser's default focus-on-click, so
+    // focus explicitly -- otherwise arrow-key adjustment after a click
+    // silently does nothing because the knob never actually has focus.
+    e.currentTarget.focus();
+    isDraggingRef.current = true;
     setIsDragging(true);
+    onChange(valueFromClientPos(e.clientX, e.clientY));
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
   };
@@ -99,6 +123,13 @@ export default function Knob({
   const handleDoubleClick = () => {
     if (disabled || defaultValue === undefined) return;
     onChange(defaultValue);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (disabled) return;
+    e.preventDefault();
+    const direction = e.deltaY < 0 ? 1 : -1;
+    onChange(clamp(parseFloat((value + direction * step).toFixed(4)), min, max));
   };
 
   const angle = ANGLE_MIN + ((value - min) / (max - min)) * (ANGLE_MAX - ANGLE_MIN);
@@ -123,21 +154,26 @@ export default function Knob({
         }}
       >
         <svg
+          ref={svgRef}
           width={size}
           height={size}
           onPointerDown={handlePointerDown}
           onDoubleClick={handleDoubleClick}
           onKeyDown={handleKeyDown}
+          onWheel={handleWheel}
           tabIndex={disabled ? -1 : 0}
           role="slider"
           aria-valuemin={min}
           aria-valuemax={max}
           aria-valuenow={value}
           aria-label={label}
-          className={`touch-none outline-none ${
-            disabled ? "cursor-not-allowed" : "cursor-ns-resize"
+          className={`touch-none outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card ${
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
           }`}
-          style={isDragging ? { filter: `drop-shadow(0 0 8px ${glow}aa)` } : undefined}
+          style={{
+            ...(isDragging ? { filter: `drop-shadow(0 0 8px ${glow}aa)` } : undefined),
+            ...(disabled ? undefined : ({ "--tw-ring-color": glow } as React.CSSProperties)),
+          }}
         >
           <defs>
             <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">

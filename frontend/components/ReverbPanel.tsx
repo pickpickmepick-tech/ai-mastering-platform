@@ -154,9 +154,16 @@ export default function ReverbPanel({
           type="button"
           onClick={() => onToggle(!enabled)}
           title={enabled ? "끄기" : "켜기"}
-          className="flex h-7 w-7 shrink-0 items-center justify-center text-xl leading-none text-zinc-500 transition hover:text-zinc-300"
+          aria-pressed={enabled}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+            enabled ? "bg-accent" : "bg-white/10"
+          }`}
         >
-          ×
+          <span
+            className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+              enabled ? "translate-x-[20px]" : "translate-x-0"
+            }`}
+          />
         </button>
       </div>
 

@@ -7,6 +7,8 @@ import EQKnobs from "@/components/EQKnobs";
 import MasterSettings from "@/components/MasterSettings";
 import ReverbPanel from "@/components/ReverbPanel";
 import StretchPanel from "@/components/StretchPanel";
+import LivePreview from "@/components/LivePreview";
+import WaveformPlayer from "@/components/WaveformPlayer";
 import { masterTrack, downloadBlob } from "@/lib/api";
 
 type Status = "idle" | "processing" | "done" | "error";
@@ -46,6 +48,7 @@ export default function Home() {
 
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [masteredUrl, setMasteredUrl] = useState<string | null>(null);
+  const [masteredBlob, setMasteredBlob] = useState<Blob | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>("after");
   const audioRef = useRef<HTMLAudioElement>(null);
   const urlsRef = useRef<{ before: string | null; after: string | null }>({
@@ -68,12 +71,15 @@ export default function Home() {
   }, []);
 
   // Load the freshly mastered track into the player as soon as it's ready.
+  // Depends on `status` too: the <audio> element only mounts once status
+  // becomes "done", which happens on a later render than the one where
+  // masteredUrl is set, so masteredUrl alone isn't enough to catch the mount.
   useEffect(() => {
-    if (audioRef.current && masteredUrl) {
+    if (status === "done" && audioRef.current && masteredUrl) {
       audioRef.current.src = masteredUrl;
       audioRef.current.currentTime = 0;
     }
-  }, [masteredUrl]);
+  }, [status, masteredUrl]);
 
   const handleToggleCompare = () => {
     const audio = audioRef.current;
@@ -148,6 +154,7 @@ export default function Home() {
       urlsRef.current = { before: beforeUrl, after: afterUrl };
       setOriginalUrl(beforeUrl);
       setMasteredUrl(afterUrl);
+      setMasteredBlob(result.blob);
       setCompareMode("after");
 
       setReport(result.report);
@@ -187,6 +194,19 @@ export default function Home() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         <div className="space-y-5 lg:col-span-3">
           <FileDropzone file={file} onFileSelect={setFile} />
+          <LivePreview
+            file={file}
+            bassDb={bass}
+            vocalDb={vocal}
+            clarityDb={clarity}
+            reverbEnabled={reverbEnabled}
+            reverbMix={reverbMix}
+            reverbSize={reverbSize}
+            reverbTone={reverbTone}
+            stretchEnabled={stretchEnabled}
+            stretchSpeed={stretchSpeed}
+            stretchPitch={stretchPitch}
+          />
           <PromptInput value={prompt} onChange={setPrompt} />
           <EQKnobs bass={bass} vocal={vocal} clarity={clarity} onChange={handleSliderChange} />
           <ReverbPanel
@@ -200,7 +220,6 @@ export default function Home() {
             onToneChange={setReverbTone}
           />
           <StretchPanel
-            file={file}
             enabled={stretchEnabled}
             speed={stretchSpeed}
             pitch={stretchPitch}
@@ -258,7 +277,12 @@ export default function Home() {
                   {compareMode === "after" ? "AFTER · 마스터링본" : "BEFORE · 원본"}
                 </span>
               </div>
-              <audio ref={audioRef} controls className="w-full" />
+              <audio ref={audioRef} className="hidden" />
+              <WaveformPlayer
+                audioRef={audioRef}
+                blob={compareMode === "after" ? masteredBlob : file}
+                accentColor={compareMode === "after" ? "#22d3ee" : "#a78bfa"}
+              />
               <button
                 type="button"
                 onClick={handleToggleCompare}
