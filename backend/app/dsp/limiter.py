@@ -38,10 +38,17 @@ class TruePeakLimiter:
     def process(self, audio: np.ndarray) -> np.ndarray:
         """
         audio: shape (channels, samples), float32
+
+        Stays in float32 (not float64) for the 4x-oversampled buffers: at
+        the ~48kHz working rate, a 3-minute stereo track's oversampled `up`
+        array alone is ~250MB in float32 vs ~500MB in float64, and this
+        function runs up to 6x per mastering request (the loudness binary
+        search calls it once per iteration) -- float64 here was blowing
+        past the 2GB instance limit and OOM-killing the whole request.
         """
         channels, n = audio.shape
         os_factor = self.oversample
-        up = resample_poly(audio, os_factor, 1, axis=-1).astype(np.float64)
+        up = resample_poly(audio, os_factor, 1, axis=-1).astype(np.float32, copy=False)
         up_len = up.shape[1]
 
         ceiling_lin = 10.0 ** (self.ceiling_db / 20.0)
@@ -85,8 +92,10 @@ class TruePeakLimiter:
             gain_full = np.concatenate([gain_full, np.full(up_len - gain_full.shape[0], smoothed[-1])])
 
         up_limited = up * gain_full[np.newaxis, :]
+        del up  # free the 4x-oversampled buffer before the downsample allocates another one
 
         down = resample_poly(up_limited, 1, os_factor, axis=-1)
+        del up_limited
         down = down[:, :n]
 
         # final hard safety clip in case of any residual overshoot from resampling ringing
