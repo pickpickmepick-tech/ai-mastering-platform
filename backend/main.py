@@ -5,12 +5,15 @@ Backend entrypoint (FastAPI + uvicorn)
 Run directly:
     uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
+import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 _allow_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
 _frontend_origin = os.environ.get("FRONTEND_ORIGIN")

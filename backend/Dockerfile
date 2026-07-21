@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+# Unbuffered stdout/stderr so log lines are flushed immediately -- critical
+# for diagnosing a hard crash (segfault/OOM kill), since buffered output can
+# be lost entirely when the process dies without a clean exit.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 RUN apt-get update \

@@ -43,6 +43,11 @@ from __future__ import annotations
 
 import logging
 
+try:
+    import resource  # Unix-only; unavailable on Windows (local dev).
+except ImportError:
+    resource = None
+
 import numpy as np
 from scipy.signal import resample
 from pedalboard import Pedalboard, LowShelfFilter
@@ -64,6 +69,13 @@ from .loudness import measure_integrated_lufs
 from .limiter import TruePeakLimiter, true_peak_dbtp
 
 logger = logging.getLogger(__name__)
+
+
+def _rss_mb() -> float:
+    """Peak resident set size so far, in MB (Linux ru_maxrss is in KB)."""
+    if resource is None:
+        return -1.0
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
 
 # Safe headroom kept below the absolute -1.0 dBTP digital ceiling. Loudness is
 # only ever raised by driving harder into a limiter that already enforces
@@ -194,10 +206,13 @@ def master_audio(
     if audio.ndim == 1:
         audio = audio[np.newaxis, :]
 
+    logger.info("master_audio: start, shape=%s sr=%s, rss=%.0fMB", audio.shape, sr, _rss_mb())
+
     # Speed/pitch ("key up/down") is a creative, duration-changing edit, so it
     # runs first on the raw input -- everything after (analysis, EQ, loudness
     # targeting) then operates on the track at its final length/key.
     audio = apply_stretch(audio, sr, stretch_speed, stretch_pitch_semitones)
+    logger.info("master_audio: checkpoint after stretch")
 
     bass_db += BASE_BASS_DB
     vocal_db += BASE_VOCAL_DB
@@ -210,6 +225,7 @@ def master_audio(
     n_hi = int(round(n_in * UPSAMPLE_RATE / sr))
     hi_res = resample(audio, n_hi, axis=1).astype(np.float32)
     work_sr = UPSAMPLE_RATE
+    logger.info("master_audio: checkpoint after upsample, hi_res shape=%s, rss=%.0fMB", hi_res.shape, _rss_mb())
 
     # 0. Real-time adaptive analysis -- this track's own frequency balance.
     # If the analyzer errors out for *any* reason, fall back to the Safe
@@ -225,38 +241,47 @@ def master_audio(
         low_shelf_gain_db = SAFE_DEFAULT_LOW_SHELF_GAIN_DB
         deess_gain_db = SAFE_DEFAULT_DEESS_GAIN_DB
         lowpass_stages = SAFE_DEFAULT_LOWPASS_STAGES
+    logger.info("master_audio: checkpoint after adaptive analysis")
 
     # 1. Tone repair, parameterized by the dynamic_high_cleaner results.
     stage1 = repair_tone(hi_res, work_sr, deess_gain_db=deess_gain_db, lowpass_stages=lowpass_stages)
+    logger.info("master_audio: checkpoint after tone repair")
 
     # 1b. dynamic_low_cleaner: adaptive 90Hz low-shelf trim.
     low_cleaner_board = Pedalboard([
         LowShelfFilter(cutoff_frequency_hz=LOW_SHELF_CLEANER_HZ, gain_db=low_shelf_gain_db)
     ])
     stage1 = low_cleaner_board(stage1, work_sr).astype(np.float32)
+    logger.info("master_audio: checkpoint after low-shelf cleaner")
 
     # 2. True multiband split at 120Hz: independent low-band handling.
     low, high = split_bands(stage1, work_sr, crossover_hz=CROSSOVER_HZ)
+    logger.info("master_audio: checkpoint after band split")
 
     bass_board = Pedalboard([LowShelfFilter(cutoff_frequency_hz=100.0, gain_db=bass_db)])
     low = bass_board(low, work_sr).astype(np.float32)
     low = compress_low_band(low, work_sr, release_ms=800.0)
+    logger.info("master_audio: checkpoint after low-band compress")
 
     eq = DynamicEQ(work_sr, vocal_db=vocal_db, clarity_db=clarity_db)
     high = eq.process(high)
+    logger.info("master_audio: checkpoint after dynamic EQ")
 
     combined = low + high
 
     # 3. Smart Transient Shaper
     stage3 = shape_transients(combined, work_sr)
+    logger.info("master_audio: checkpoint after transient shaper")
 
     # 4. Anti-AI evasion (micro-jitter + gaussian dither)
     stage4 = apply_anti_ai(stage3, work_sr, intensity=float(np.clip(anti_ai_intensity, 0.0, 1.0)))
+    logger.info("master_audio: checkpoint after anti-ai")
 
     # 4b. Studio Reverb send (Mix/Size/Tone). Applied before loudness
     # targeting so the target LUFS is matched on the track *including* the
     # reverb tail, not before it.
     stage4 = apply_reverb(stage4, work_sr, reverb_mix, reverb_size, reverb_tone)
+    logger.info("master_audio: checkpoint after reverb")
 
     # 5. Loudness-to-target by riding an adaptive limiter ceiling (see
     # docstring): tracks needing heavier low/high correction get a slightly
@@ -267,17 +292,24 @@ def master_audio(
     stage5, measured_lufs_before, _ = _ride_limiter_to_target(
         stage4, work_sr, target_lufs, ceiling_db
     )
+    logger.info("master_audio: checkpoint after loudness ride")
 
     # +1. Downsample the finished hi-res master down to the 44.1kHz export
     # rate, then re-lock the same adaptive true-peak ceiling once more since
     # downsampling reconstruction can reintroduce a small amount of ripple.
     n_out = int(round(stage5.shape[1] * EXPORT_RATE / work_sr))
     export_audio = resample(stage5, n_out, axis=1).astype(np.float32)
+    logger.info("master_audio: checkpoint after downsample")
     export_limiter = TruePeakLimiter(EXPORT_RATE, ceiling_db=ceiling_db)
     final_audio = export_limiter.process(export_audio)
+    logger.info("master_audio: checkpoint after export limiter")
 
     final_lufs = measure_integrated_lufs(final_audio, EXPORT_RATE)
     final_true_peak = true_peak_dbtp(final_audio)
+    logger.info(
+        "master_audio: checkpoint done, final_lufs=%.2f true_peak=%.2f, rss=%.0fMB",
+        final_lufs, final_true_peak, _rss_mb(),
+    )
 
     report = {
         "measured_lufs_before_normalization": round(measured_lufs_before, 2),

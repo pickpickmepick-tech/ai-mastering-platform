@@ -46,14 +46,20 @@ async def master(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
 
+    logger.info("route: request received, filename=%s", file.filename)
+
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes)")
+
+    logger.info("route: file read, %d bytes", len(raw))
 
     try:
         data, sr = sf.read(io.BytesIO(raw), always_2d=True, dtype="float32")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not read audio file: {exc}")
+
+    logger.info("route: decoded, shape=%s sr=%s", data.shape, sr)
 
     if data.size == 0 or data.shape[0] == 0:
         raise HTTPException(status_code=400, detail="Audio file contains no samples (decoded to 0 frames)")
@@ -91,9 +97,13 @@ async def master(
         logger.exception("Mastering failed")
         raise HTTPException(status_code=500, detail=f"Mastering failed: {exc}")
 
+    logger.info("route: master_audio returned, encoding WAV")
+
     buf = io.BytesIO()
     sf.write(buf, processed.T, out_sr, format="WAV", subtype="PCM_24")
     buf.seek(0)
+
+    logger.info("route: WAV encoded, sending response")
 
     base_name = file.filename.rsplit(".", 1)[0]
     out_name = f"mastered_{base_name}.wav"
