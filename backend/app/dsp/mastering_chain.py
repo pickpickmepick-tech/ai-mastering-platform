@@ -182,7 +182,13 @@ def _ride_limiter_to_target(
 
     Returns (processed_audio, pre_limiter_lufs, achieved_lufs).
     """
-    limiter = TruePeakLimiter(sr, ceiling_db=ceiling_db)
+    # 2x oversample for the loudness-search passes (this limiter runs 6x per
+    # request). These passes only exist to *measure* how hard to drive the
+    # signal to hit target LUFS -- LUFS is a windowed-RMS measure, insensitive
+    # to 2x vs 4x inter-sample detail. The delivered file is re-limited at the
+    # full 4x by export_limiter in master_audio(), so the true-peak (-1 dBTP)
+    # guarantee on the actual output is unchanged. Halves each pass's 4x buffer.
+    limiter = TruePeakLimiter(sr, ceiling_db=ceiling_db, oversample=2)
 
     pre_lufs = measure_integrated_lufs(audio, sr)
     naive_gain_db = target_lufs - pre_lufs
@@ -280,16 +286,16 @@ def master_audio(
     # 2. True multiband split at 120Hz: independent low-band handling.
     low, high = split_bands(stage1, work_sr, crossover_hz=CROSSOVER_HZ)
     del stage1
-    logger.info("master_audio: checkpoint after band split")
+    logger.info("master_audio: checkpoint after band split, rss=%.0fMB", _rss_mb())
 
     bass_board = Pedalboard([LowShelfFilter(cutoff_frequency_hz=100.0, gain_db=bass_db)])
     low = bass_board(low, work_sr).astype(np.float32, copy=False)
     low = compress_low_band(low, work_sr, release_ms=800.0)
-    logger.info("master_audio: checkpoint after low-band compress")
+    logger.info("master_audio: checkpoint after low-band compress, rss=%.0fMB", _rss_mb())
 
     eq = DynamicEQ(work_sr, vocal_db=vocal_db, clarity_db=clarity_db)
     high = eq.process(high)
-    logger.info("master_audio: checkpoint after dynamic EQ")
+    logger.info("master_audio: checkpoint after dynamic EQ, rss=%.0fMB", _rss_mb())
 
     combined = low + high
     del low, high
@@ -297,18 +303,18 @@ def master_audio(
     # 3. Smart Transient Shaper
     stage3 = shape_transients(combined, work_sr)
     del combined
-    logger.info("master_audio: checkpoint after transient shaper")
+    logger.info("master_audio: checkpoint after transient shaper, rss=%.0fMB", _rss_mb())
 
     # 4. Anti-AI evasion (micro-jitter + gaussian dither)
     stage4 = apply_anti_ai(stage3, work_sr, intensity=float(np.clip(anti_ai_intensity, 0.0, 1.0)))
     del stage3
-    logger.info("master_audio: checkpoint after anti-ai")
+    logger.info("master_audio: checkpoint after anti-ai, rss=%.0fMB", _rss_mb())
 
     # 4b. Studio Reverb send (Mix/Size/Tone). Applied before loudness
     # targeting so the target LUFS is matched on the track *including* the
     # reverb tail, not before it.
     stage4 = apply_reverb(stage4, work_sr, reverb_mix, reverb_size, reverb_tone)
-    logger.info("master_audio: checkpoint after reverb")
+    logger.info("master_audio: checkpoint after reverb, rss=%.0fMB", _rss_mb())
 
     # 5. Loudness-to-target by riding an adaptive limiter ceiling (see
     # docstring): tracks needing heavier low/high correction get a slightly
@@ -320,17 +326,17 @@ def master_audio(
         stage4, work_sr, target_lufs, ceiling_db
     )
     del stage4
-    logger.info("master_audio: checkpoint after loudness ride")
+    logger.info("master_audio: checkpoint after loudness ride, rss=%.0fMB", _rss_mb())
 
     # +1. Downsample the finished hi-res master down to the 44.1kHz export
     # rate, then re-lock the same adaptive true-peak ceiling once more since
     # downsampling reconstruction can reintroduce a small amount of ripple.
     export_audio = _resample(stage5, work_sr, EXPORT_RATE).astype(np.float32)
     del stage5
-    logger.info("master_audio: checkpoint after downsample")
+    logger.info("master_audio: checkpoint after downsample, rss=%.0fMB", _rss_mb())
     export_limiter = TruePeakLimiter(EXPORT_RATE, ceiling_db=ceiling_db)
     final_audio = export_limiter.process(export_audio)
-    logger.info("master_audio: checkpoint after export limiter")
+    logger.info("master_audio: checkpoint after export limiter, rss=%.0fMB", _rss_mb())
 
     final_lufs = measure_integrated_lufs(final_audio, EXPORT_RATE)
     final_true_peak = true_peak_dbtp(final_audio)

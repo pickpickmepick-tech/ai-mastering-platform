@@ -91,11 +91,15 @@ class TruePeakLimiter:
         if gain_full.shape[0] < up_len:
             gain_full = np.concatenate([gain_full, np.full(up_len - gain_full.shape[0], smoothed[-1])])
 
-        up_limited = up * gain_full[np.newaxis, :]
-        del up  # free the 4x-oversampled buffer before the downsample allocates another one
+        # In-place gain: multiplying into `up` avoids allocating a *second* full
+        # 4x-oversampled buffer (the old `up_limited = up * gain`). At the export
+        # limiter (4x, multi-minute) that second buffer alone was ~0.5GB -- this
+        # is the single biggest peak-RSS saving, and it applies to all ~7 limiter
+        # passes per request.
+        up *= gain_full[np.newaxis, :]
 
-        down = resample_poly(up_limited, 1, os_factor, axis=-1)
-        del up_limited
+        down = resample_poly(up, 1, os_factor, axis=-1)
+        del up
         down = down[:, :n]
 
         # final hard safety clip in case of any residual overshoot from resampling ringing

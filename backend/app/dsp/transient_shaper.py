@@ -66,8 +66,16 @@ def shape_transients(
 
     # smooth the gain curve itself slightly to avoid zipper artifacts
     smooth_kernel = np.ones(64) / 64.0
-    gain = np.convolve(gain, smooth_kernel, mode="same")
+    # float32 from here on: the gain vector and the output buffer are both full
+    # track length; keeping them float32 (not float64) halves those buffers.
+    gain = np.convolve(gain, smooth_kernel, mode="same").astype(np.float32)
 
-    out = audio * gain[np.newaxis, :]
-    out = _soft_clip(out, drive=soft_clip_drive)
-    return out.astype(np.float32)
+    out = (audio * gain[np.newaxis, :]).astype(np.float32, copy=False)
+    # In-place tanh waveshaper. The old _soft_clip expression form
+    # (x*drive -> np.tanh -> /norm -> .astype) allocated ~3 full-size
+    # temporaries; on multi-minute tracks this stage was the single largest
+    # peak-RSS contributor. Same math, done in the one `out` buffer.
+    out *= soft_clip_drive
+    np.tanh(out, out=out)
+    out /= np.float32(np.tanh(soft_clip_drive))
+    return out

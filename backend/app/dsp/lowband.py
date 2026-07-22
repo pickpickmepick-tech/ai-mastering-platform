@@ -29,11 +29,14 @@ def split_bands(audio: np.ndarray, sr: int, crossover_hz: float = 120.0):
     sos_lp = butter(2, wn, btype="low", output="sos")
     sos_hp = butter(2, wn, btype="high", output="sos")
 
-    low = sosfilt(sos_lp, audio, axis=-1)
-    low = sosfilt(sos_lp, low, axis=-1)
-    high = sosfilt(sos_hp, audio, axis=-1)
-    high = sosfilt(sos_hp, high, axis=-1)
-    return low.astype(np.float32), high.astype(np.float32)
+    # Cast back to float32 after each sosfilt: scipy upcasts to float64
+    # internally, so without this the two full-length intermediate bands are
+    # 8-byte buffers (double the RAM) until the final cast.
+    low = sosfilt(sos_lp, audio, axis=-1).astype(np.float32, copy=False)
+    low = sosfilt(sos_lp, low, axis=-1).astype(np.float32, copy=False)
+    high = sosfilt(sos_hp, audio, axis=-1).astype(np.float32, copy=False)
+    high = sosfilt(sos_hp, high, axis=-1).astype(np.float32, copy=False)
+    return low, high
 
 
 def compress_low_band(
